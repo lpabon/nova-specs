@@ -55,30 +55,32 @@ TBD.
 REST API impact
 ---------------
 
-The following Nova APIs are proposed:
+The following Nova actions are proposed to the API:
 
-* Attach Share storage /v2.1/​{tenant_id}​/servers/​{server_id}​/action:
+`/v2.1/​{tenant_id}​/servers/​{server_id}​/action`
 
-.. code-block:: json
-
-    {
-        "share_attach": {
-            "share_id": "15e59938-07d5-11e1-90e3-e3dffe0c5983",
-            "mount_point": "/net/mymount",
-            "mount_options": "rw"
-        }
-    }
-
-* Detach Share storage `/v2.1/​{tenant_id}​/servers/​{server_id}​/action`:
+Attach Share storage:
 
 .. code-block:: json
 
-    {
-        "share_detach": {
-            "share_id": "15e59938-07d5-11e1-90e3-e3dffe0c5983",
-            "mount_point": "/net/mymount",
-        }
-    }
+  {
+      "share_attach": {
+          "share_id": "15e59938-07d5-11e1-90e3-e3dffe0c5983",
+          "mount_point": "/net/mymount",
+          "mount_options": "rw"
+      }
+  }
+
+Detach Share storage:
+
+.. code-block:: json
+
+  {
+      "share_detach": {
+          "share_id": "15e59938-07d5-11e1-90e3-e3dffe0c5983",
+          "mount_point": "/net/mymount",
+      }
+  }
 
 Security impact
 ---------------
@@ -118,10 +120,7 @@ Assignee(s)
 -----------
 
 Primary assignee:
-  <launchpad-id or None>
-
-Other contributors:
-  <launchpad-id or None>
+  lpabon
 
 Work Items
 ----------
