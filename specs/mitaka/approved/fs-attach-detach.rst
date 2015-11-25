@@ -12,54 +12,77 @@ Include the URL of your launchpad blueprint:
 
 https://blueprints.launchpad.net/nova/+spec/XXX
 
-Create new Manila share attach/detach APIs in Nova, which will enable future
-automatic mounting of shares created by the service.
+Create new share attach/detach APIs in Nova to manage the connectivity and
+access to shares created by Manila.
 
 Problem description
 ===================
 
-Nova service now has two methods of providing persistent storage.  Cinder, the
-block storage service, is very tightly integrated with Nova, enabling users
-to easily create, delete, attach, and detach volumes from their virtual
-machines.  On the other hand, Manila, the file-as-a-service offering from
-OpenStack, does not have the same level of integration with Nova.  Once a share
-is created in Manila, it still requires manual intervention to mount and access
-the file share.
+Until recently, OpenStack has had only two storage services providing
+persistent storage for Nova instances.  The
+first is Swift, OpenStack's object storage offering, which requires simple
+HTTP to access its storage. The second is Cinder, the block storage service,
+which requires the hypervisor to access to the allocated storage.  For
+this reason, it is very tightly integrated with Nova, enabling users to
+easily attach and detach volumes from their instances.
+
+Now with Manila, the filesystem-as-a-service offering from OpenStack, users
+have a third storage model which can provide persistent storage.  This
+relatively new model is not very integrated with Nova, and as shuch,
+its workflow is not as efficient as Cinder's.  Also, by not having Nova
+participate in the workflow, it complicates the addition of future
+enhancements in the Manila user model.
+
 
 Use Cases
 ---------
 
-User creates share with the appropriate permissions.  They would then choose
-to attach the share to specified virtual machines.
+User creates a Manila share with the appropriate permissions.  Using the same
+workflow as Cinder, they would then *attach* the share to one or more Nova
+instances, enabling them to access the network file system.
 
 Proposed change
 ===============
 
-This change is the first in a number of changes to allow the workflow proposed
-in the previous section.  We propose a new API in Nova which would allow the
-attachment and detachment of a volume onto a number of virtual machines.  This
-specification does not provide the implementation behind the API, but instead
-focuses on coming onto an agreement on the proposed API for Nova.
+We propose the following changes to Nova:
+
+* Client needed to communicate with the Manila service.
+* State saved in Nova database showing reflecting instance share attach state.
+* Additional actions to the Nova action endpoint to attach, detach, and list
+  shares associated with specified instances.
 
 Alternatives
 ------------
 
-Continue using the manual method used today, which may become unmanigable as
-depending on the number of virtual machines accessing the share.
+Continue using the method used today.
 
 Data model impact
 -----------------
 
-TBD.
+The data model will be largely based on the current implementation of how
+Cinder volume ids are stored.
 
 REST API impact
 ---------------
 
-The following Nova actions are proposed to the API:
+Attach Share
+^^^^^^^^^^^^
 
-`/v2.1/​{tenant_id}​/servers/​{server_id}​/action`
+Enable a Nova instance to access a Manila share.
 
-Attach Share storage:
+The following Nova action is proposed to the API::
+
+    POST /v2.1/​{tenant_id}​/servers/​{server_id}​/action
+
++---------------------+------------+-------------+--------------------------+
+| Parameter           | Style      | Type        | Description              |
++=====================+============+=============+==========================+
+| share_attach        | plain      | xsd:string  | The action               |
++---------------------+------------+-------------+--------------------------+
+| share_id            | plain      | csapi:UUID  | The share ID             |
++---------------------+------------+-------------+--------------------------+
+| mount_point(Opt)    | plain      | xsd:string  | The mount point location |
++---------------------+------------+-------------+--------------------------+
 
 .. code-block:: json
 
@@ -67,11 +90,53 @@ Attach Share storage:
       "share_attach": {
           "share_id": "15e59938-07d5-11e1-90e3-e3dffe0c5983",
           "mount_point": "/net/mymount",
-          "mount_options": "rw"
       }
   }
 
-Detach Share storage:
+This operation does not return a response body.
+
+When this call is executed, Nova will ensure the instance has access to the
+share by using Manila *access* endpoint::
+
+    POST /v2/​{tenant_id}​/shares/​{share_id}​/action
+
+Once this call is successful, Nova will then save the attached *share_id*
+on the database as it is done for Cinder volumes.
+
+List Shares
+^^^^^^^^^^^
+
+List shares accessable by the instance.
+
+A new JSON value is proposed to the following API::
+
+    GET /v2.1/​{tenant_id}​/servers/​{server_id}​
+
++------------------------+------------+-------------+-----------------------+
+| Parameter              | Style      | Type        | Description           |
++========================+============+=============+=======================+
+| os-extended-           | plain      | csapi:dict  | Attached shares,      |
+| shares:shares_attached |            |             | if any                |
++------------------------+------------+-------------+-----------------------+
+
+Detach Share storage
+^^^^^^^^^^^^^^^^^^^^
+
+Remove access to a Manila share.
+
+The following Nova action is proposed to the API::
+
+    POST /v2.1/​{tenant_id}​/servers/​{server_id}​/action
+
++---------------------+------------+-------------+--------------------------+
+| Parameter           | Style      | Type        | Description              |
++=====================+============+=============+==========================+
+| share_detach        | plain      | xsd:string  | The action               |
++---------------------+------------+-------------+--------------------------+
+| share_id            | plain      | csapi:UUID  | The share ID             |
++---------------------+------------+-------------+--------------------------+
+| mount_point(Opt)    | plain      | xsd:string  | The mount point location |
++---------------------+------------+-------------+--------------------------+
 
 .. code-block:: json
 
@@ -81,6 +146,16 @@ Detach Share storage:
           "mount_point": "/net/mymount",
       }
   }
+
+This operation does not return a response body.
+
+When this call is executed, Nova will ensure the instance has access to the
+share removed by using Manila *access* endpoint::
+
+    POST /v2/​{tenant_id}​/shares/​{share_id}​/action
+
+Once this call is successful, Nova will then save the attached *share_id*
+on the database as it is done for Cinder volumes.
 
 Security impact
 ---------------
@@ -110,8 +185,12 @@ None.
 Developer impact
 ----------------
 
-We would like to get feedback not only from the Nova community but also from
-the Manila community.
+* This work is needed for one possible goal of having hypervisor mediated
+  access, instead of our current network mediated security model.
+* Together with [1] will enable future enhancements which could simplify the
+  filesystem access workflow.
+* We would like to get feedback not only from the Nova community but also from
+  the Manila community.
 
 Implementation
 ==============
@@ -147,8 +226,23 @@ API documentation will need to be updated.
 References
 ==========
 
+* [1] Manila support in metadata service
+    * https://review.openstack.org/#/c/248301/
 * Nova actions API:
     * http://developer.openstack.org/api-ref-compute-v2.1.html#os-server-actions-v2.1
+* Manila API:
+    * http://developer.openstack.org/api-ref-share-v2.html
 * Attach/Detach email:
     * https://www.mail-archive.com/openstack-dev@lists.openstack.org/msg66667.html
+
+History
+=======
+
+.. list-table:: Revisions
+   :header-rows: 1
+
+   * - Release Name
+     - Description
+   * - Mitaka
+     - Introduced
 
